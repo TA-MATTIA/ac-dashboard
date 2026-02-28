@@ -1,0 +1,57 @@
+name: Jira Movement Reporter — Daily Sync
+
+on:
+  schedule:
+    # Runs every day at 06:00 UTC (adjust to your timezone)
+    - cron: "0 6 * * *"
+  workflow_dispatch:          # also allows manual trigger from GitHub UI
+    inputs:
+      dry_run:
+        description: "Dry run (no Sheet writes)"
+        required: false
+        default: "false"
+        type: choice
+        options: ["false", "true"]
+
+jobs:
+  sync:
+    name: Sync Jira → Google Sheets
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Write Google service account file
+        env:
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+        run: |
+          echo "$GOOGLE_SERVICE_ACCOUNT_JSON" > service_account.json
+
+      - name: Run sync
+        env:
+          JIRA_BASE_URL:            ${{ secrets.JIRA_BASE_URL }}
+          JIRA_EMAIL:               ${{ secrets.JIRA_EMAIL }}
+          JIRA_API_TOKEN:           ${{ secrets.JIRA_API_TOKEN }}
+          GOOGLE_SHEET_ID:          ${{ secrets.GOOGLE_SHEET_ID }}
+          GOOGLE_SERVICE_ACCOUNT_FILE: service_account.json
+        run: |
+          DRY_RUN_FLAG=""
+          if [ "${{ github.event.inputs.dry_run }}" = "true" ]; then
+            DRY_RUN_FLAG="--dry-run"
+          fi
+          python jira_sheet_sync.py $DRY_RUN_FLAG
+
+      - name: Clean up service account file
+        if: always()
+        run: rm -f service_account.json

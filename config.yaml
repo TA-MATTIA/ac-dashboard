@@ -1,0 +1,51 @@
+# ============================================================
+# config.yaml — Jira Movement Reporter configuration
+# ============================================================
+# Secrets (jira.api_token, google.sheet_id, etc.) should be
+# set as environment variables instead of hardcoded here.
+# Environment variables take precedence over this file.
+# ============================================================
+
+
+jira:
+  base_url: "https://getground.atlassian.net"
+  email: "daniele.mattia@getground.co.uk"
+  project_keys:
+    - "AC"
+  jjql_override: "project = AC AND (statusCategory != Done OR updated >= '2026-01-01') ORDER BY updated ASC"
+
+statuses:
+  in_progress:
+    - "CUSTOMER SUBMITTED"
+    - "PENDING INITIAL REVIEW"
+    - "REVIEWING"
+    - "FURTHER INFO REQUESTED"
+    - "PREPARING WP"
+    - "PENDING WP REVIEW"
+    - "REVIEWING WP"
+    - "PREPARING ACCOUNTS"
+    - "PENDING AC REVIEW"
+    - "ACCOUNTS READY"
+    - "SUBMITTED FOR SIGNATURE"
+    - "ACCOUNTS SIGNED"
+  done:
+    - "ACCOUNTS FILED"
+    - "CT600 FILED"
+
+team:
+  field: "customfield_10059"
+  field_name: "Accounting Due"
+
+backfill_from: "2026-01-01"
+
+google:
+  sheet_id: ""
+  service_account_file: "service_account.json"
+
+
+# Jira API pagination
+page_size: 100
+
+# Retry config
+max_retries: 5
+retry_backoff: 1.5         # multiplier applied to sleep between retries
