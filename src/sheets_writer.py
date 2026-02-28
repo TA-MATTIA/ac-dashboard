@@ -192,7 +192,7 @@ class SheetsWriter:
             ["Setting", "Value", "Notes"],
             ["jira_base_url", cfg.jira_base_url, "Your Jira Cloud URL"],
             ["project_keys", ",".join(cfg.jira_project_keys), "Comma-separated project keys"],
-            ["backfill_days", cfg.backfill_days, "How far back to pull data"],
+            ["backfill_from", cfg.backfill_from, "Start date for data pull"],
             ["in_progress_statuses", ",".join(cfg.in_progress_statuses), "Statuses treated as In Progress"],
             ["done_statuses", ",".join(cfg.done_statuses), "Statuses treated as Done"],
             ["team_field", cfg.team_field, "component | label | custom field id"],

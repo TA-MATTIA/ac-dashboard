@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AC Project — Jira Dashboard</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Instrument+Serif:ital@0;1&family=DM+Sans:wght@300;400;500;600&display=swap');
+  :root {
+    --bg:#0f1117;--surface:#181c27;--surface2:#1e2334;--border:#2a3045;
+    --accent:#4f9cf9;--accent2:#f97b4f;--accent3:#4fca8f;--accent4:#c97bf9;
+    --text:#e8ecf4;--muted:#6b7699;--warn:#f9c44f;--danger:#f97b4f;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg);color:var(--text);font-family:'DM Sans',sans-serif;font-size:13px;min-height:100vh}
+  .header{padding:24px 32px 18px;border-bottom:1px solid var(--border);display:flex;align-items:baseline;gap:16px;flex-wrap:wrap}
+  .header h1{font-family:'Instrument Serif',serif;font-size:24px;font-weight:400}
+  .header .meta{font-family:'DM Mono',monospace;font-size:11px;color:var(--muted);letter-spacing:.05em}
+  .tab-bar{display:flex;gap:2px;padding:12px 32px 0;border-bottom:1px solid var(--border);overflow-x:auto}
+  .tab{padding:8px 16px;font-size:12px;color:var(--muted);cursor:pointer;border-bottom:2px solid transparent;white-space:nowrap;transition:all .15s;font-family:'DM Mono',monospace}
+  .tab:hover{color:var(--text)} .tab.active{color:var(--accent);border-bottom-color:var(--accent)}
+  .content{padding:24px 32px;display:none} .content.active{display:block;animation:fadeIn .2s ease}
+  @keyframes fadeIn{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:translateY(0)}}
+  .kpi-row{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:20px}
+  .kpi{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:16px 18px}
+  .kpi .label{font-size:11px;color:var(--muted);font-family:'DM Mono',monospace;letter-spacing:.04em;margin-bottom:8px;text-transform:uppercase}
+  .kpi .value{font-size:30px;font-family:'Instrument Serif',serif;font-weight:400;line-height:1}
+  .kpi .sub{font-size:11px;color:var(--muted);margin-top:4px}
+  .trend-up{color:var(--accent3)} .trend-down{color:var(--danger)}
+  .grid2{display:grid;grid-template-columns:1.6fr 1fr;gap:12px;margin-bottom:12px}
+  .grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:12px}
+  .grid1{margin-bottom:12px}
+  .card{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:18px 20px}
+  .card h3{font-size:11px;color:var(--muted);font-family:'DM Mono',monospace;letter-spacing:.06em;text-transform:uppercase;margin-bottom:16px}
+  .bar-chart{display:flex;flex-direction:column;gap:6px}
+  .bar-row{display:flex;align-items:center;gap:8px}
+  .bar-label{width:140px;font-size:10px;color:var(--muted);text-align:right;flex-shrink:0;font-family:'DM Mono',monospace;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .bar-track{flex:1;background:var(--surface2);border-radius:2px;height:18px;overflow:hidden}
+  .bar-fill{height:100%;border-radius:2px;display:flex;align-items:center;padding-left:6px;font-size:10px;font-family:'DM Mono',monospace;color:rgba(255,255,255,.8);white-space:nowrap}
+  .bar-val{width:40px;font-size:10px;font-family:'DM Mono',monospace;color:var(--muted);text-align:right;flex-shrink:0}
+  .spark-wrap{display:flex;align-items:flex-end;gap:5px;height:90px}
+  .spark-col{display:flex;flex-direction:column;align-items:center;gap:3px;flex:1;cursor:default}
+  .spark-bar{width:100%;background:var(--accent);border-radius:3px 3px 0 0;opacity:.8;transition:opacity .2s}
+  .spark-bar:hover{opacity:1}
+  .spark-label{font-size:9px;color:var(--muted);font-family:'DM Mono',monospace}
+  .spark-val{font-size:9px;color:var(--accent);font-family:'DM Mono',monospace}
+  table{width:100%;border-collapse:collapse}
+  th{font-size:10px;color:var(--muted);font-family:'DM Mono',monospace;text-transform:uppercase;letter-spacing:.06em;padding:6px 8px;text-align:left;border-bottom:1px solid var(--border)}
+  td{padding:7px 8px;font-size:11px;border-bottom:1px solid #1a1f2e;font-family:'DM Mono',monospace}
+  tr:last-child td{border-bottom:none} tr:hover td{background:var(--surface2)}
+  .badge{display:inline-block;padding:2px 7px;border-radius:10px;font-size:10px;font-family:'DM Mono',monospace}
+  .aging-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:16px}
+  .aging-box{background:var(--surface2);border-radius:6px;padding:14px;text-align:center}
+  .aging-num{font-size:36px;font-family:'Instrument Serif',serif;line-height:1;margin-bottom:4px}
+  .aging-lbl{font-size:10px;color:var(--muted);font-family:'DM Mono',monospace}
+  .note{background:rgba(79,156,249,.08);border:1px solid rgba(79,156,249,.2);border-radius:6px;padding:10px 14px;font-size:12px;color:var(--accent);margin-bottom:16px}
+  .overflow{overflow-x:auto}
+  @media(max-width:900px){.kpi-row{grid-template-columns:repeat(2,1fr)}.grid2{grid-template-columns:1fr}.grid3{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="header">
+  <h1>AC Project — Jira Dashboard</h1>
+  <span class="meta">last sync: 2026-02-28 14:51 UTC &nbsp;·&nbsp; 7,301 issues</span>
+</div>
+<div class="tab-bar">
+  <div class="tab active" onclick="show('dashboard',this)">dashboard</div>
+  <div class="tab" onclick="show('aging',this)">stuck tickets</div>
+  <div class="tab" onclick="show('cycle',this)">cycle time</div>
+  <div class="tab" onclick="show('activity',this)">recent activity</div>
+</div>
+
+<!-- DASHBOARD -->
+<div class="content active" id="dashboard">
+  <div class="kpi-row">
+    <div class="kpi">
+      <div class="label">This Week — Done</div>
+      <div class="value" style="color:var(--accent3)">211</div>
+      <div class="sub trend-up">↑ 147 vs last week</div>
+    </div>
+    <div class="kpi">
+      <div class="label">Avg Cycle Time</div>
+      <div class="value" style="color:var(--accent)">64.2<span style="font-size:14px;color:var(--muted)"> days</span></div>
+      <div class="sub">p50: 45.5d &nbsp;·&nbsp; p90: 171.7d</div>
+    </div>
+    <div class="kpi">
+      <div class="label">Current WIP</div>
+      <div class="value" style="color:var(--text)">7099</div>
+      <div class="sub">open tickets right now</div>
+    </div>
+    <div class="kpi">
+      <div class="label">Reopen Rate</div>
+      <div class="value" style="color:var(--warn)">19.9<span style="font-size:14px">%</span></div>
+      <div class="sub">tickets moved back from Done</div>
+    </div>
+  </div>
+  <div class="grid2">
+    <div class="card"><h3>Weekly Throughput — Tickets Completed</h3><div class="spark-wrap" id="throughput-chart"></div></div>
+    <div class="card"><h3>WIP by Status</h3><div class="bar-chart" id="wip-chart"></div></div>
+  </div>
+  <div class="grid2">
+    <div class="card"><h3>Time Stuck — Aging WIP Summary</h3>
+      <div class="aging-grid">
+        <div class="aging-box"><div class="aging-num" style="color:var(--warn)">4793</div><div class="aging-lbl">stuck &gt;5 days</div></div>
+        <div class="aging-box"><div class="aging-num" style="color:var(--danger)">4793</div><div class="aging-lbl">stuck &gt;10 days</div></div>
+        <div class="aging-box"><div class="aging-num" style="color:#ff4444">4793</div><div class="aging-lbl">stuck &gt;30 days</div></div>
+      </div>
+      <div class="bar-chart" id="stuck-chart"></div>
+    </div>
+    <div class="card"><h3>Reopen Rate per Week</h3><div class="bar-chart" id="reopen-chart"></div></div>
+  </div>
+</div>
+
+<!-- STUCK TICKETS -->
+<div class="content" id="aging">
+  <div class="note">⚠️ Tickets that haven't moved status in 5+ days. Sorted by most stuck first.</div>
+  <div class="overflow">
+    <table id="aging-table">
+      <thead><tr><th>ticket</th><th>status</th><th>assignee</th><th>days stuck</th><th>accounting due</th><th>bucket</th></tr></thead>
+      <tbody id="aging-body"></tbody>
+    </table>
+  </div>
+</div>
+
+<!-- CYCLE TIME -->
+<div class="content" id="cycle">
+  <div class="grid2">
+    <div class="card"><h3>Cycle Time by Assignee (days: avg / p50 / p90)</h3><div class="bar-chart" id="cycle-chart"></div></div>
+    <div class="card"><h3>Time Spent in Each Status (avg days)</h3><div class="bar-chart" id="tis-chart"></div></div>
+  </div>
+</div>
+
+<!-- RECENT ACTIVITY -->
+<div class="content" id="activity">
+  <div class="note">📋 Last 50 status transitions across all tickets, most recent first.</div>
+  <div class="overflow">
+    <table>
+      <thead><tr><th>ticket</th><th>from</th><th>to</th><th>when</th><th>by</th><th>assignee</th><th>accounting due</th></tr></thead>
+      <tbody id="events-body"></tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+const THROUGHPUT = [{"week": "2024-W39", "tickets_done": 1}, {"week": "2025-W30", "tickets_done": 1}, {"week": "2025-W33", "tickets_done": 1}, {"week": "2025-W37", "tickets_done": 1}, {"week": "2025-W50", "tickets_done": 1}, {"week": "2025-W52", "tickets_done": 23}, {"week": "2026-W00", "tickets_done": 4}, {"week": "2026-W01", "tickets_done": 13}, {"week": "2026-W02", "tickets_done": 17}, {"week": "2026-W03", "tickets_done": 16}, {"week": "2026-W04", "tickets_done": 30}, {"week": "2026-W05", "tickets_done": 38}, {"week": "2026-W06", "tickets_done": 58}, {"week": "2026-W07", "tickets_done": 64}, {"week": "2026-W08", "tickets_done": 211}];
+const WIP       = [{"status": "DUE", "wip_count": 4314}, {"status": "Pending initial review", "wip_count": 856}, {"status": "CUSTOMER SUBMITTED", "wip_count": 446}, {"status": "SUBMITTED FOR SIGNATURE", "wip_count": 360}, {"status": "Further Info Requested", "wip_count": 347}, {"status": "Done", "wip_count": 215}, {"status": "Pending WP review", "wip_count": 201}, {"status": "Accounts signed", "wip_count": 135}, {"status": "Preparing WP", "wip_count": 77}, {"status": "Reviewing", "wip_count": 74}, {"status": "Coming Due", "wip_count": 36}, {"status": "Reviewing WP", "wip_count": 32}];
+const AGING     = [{"issue_key": "AC-12306", "current_status": "DUE", "assignee": "Carmela Bautista", "team": "", "days_in_status": 418, "bucket": ">30d"}, {"issue_key": "AC-11345", "current_status": "DUE", "assignee": "Hannah Mae Calomot", "team": "", "days_in_status": 418, "bucket": ">30d"}, {"issue_key": "AC-7056", "current_status": "DUE", "assignee": "Yhona Lea Sotomayor", "team": "", "days_in_status": 418, "bucket": ">30d"}, {"issue_key": "AC-12416", "current_status": "SUBMITTED FOR SIGNATURE", "assignee": "Mary Rose Llona", "team": "", "days_in_status": 308, "bucket": ">30d"}, {"issue_key": "AC-8492", "current_status": "Further Info Requested", "assignee": "Cendilyn Galas", "team": "", "days_in_status": 305, "bucket": ">30d"}, {"issue_key": "AC-6123", "current_status": "Done", "assignee": "Mary Rose Llona", "team": "", "days_in_status": 208, "bucket": ">30d"}, {"issue_key": "AC-8614", "current_status": "Further Info Requested", "assignee": "Christine Mae D. Aron", "team": "", "days_in_status": 204, "bucket": ">30d"}, {"issue_key": "AC-7909", "current_status": "SUBMITTED FOR SIGNATURE", "assignee": "Michelle Manzano", "team": "", "days_in_status": 202, "bucket": ">30d"}, {"issue_key": "AC-8945", "current_status": "Done", "assignee": "", "team": "", "days_in_status": 165, "bucket": ">30d"}, {"issue_key": "AC-10793", "current_status": "Done", "assignee": "Joy Casuga", "team": "", "days_in_status": 159, "bucket": ">30d"}, {"issue_key": "AC-7641", "current_status": "Done", "assignee": "Joy Casuga", "team": "", "days_in_status": 159, "bucket": ">30d"}, {"issue_key": "AC-10923", "current_status": "SUBMITTED FOR SIGNATURE", "assignee": "Kristine Cinense", "team": "", "days_in_status": 151, "bucket": ">30d"}, {"issue_key": "AC-12887", "current_status": "DUE", "assignee": "Carmela Bautista", "team": "", "days_in_status": 145, "bucket": ">30d"}, {"issue_key": "AC-12865", "current_status": "DUE", "assignee": "Laeralliv Roque", "team": "", "days_in_status": 145, "bucket": ">30d"}, {"issue_key": "AC-12519", "current_status": "Further Info Requested", "assignee": "Christine Mae D. Aron", "team": "", "days_in_status": 144, "bucket": ">30d"}, {"issue_key": "AC-12486", "current_status": "Further Info Requested", "assignee": "Austine Jerusalem", "team": "", "days_in_status": 138, "bucket": ">30d"}, {"issue_key": "AC-12833", "current_status": "Further Info Requested", "assignee": "Vincent James Mallari", "team": "", "days_in_status": 134, "bucket": ">30d"}, {"issue_key": "AC-12790", "current_status": "Further Info Requested", "assignee": "Vincent James Mallari", "team": "", "days_in_status": 131, "bucket": ">30d"}, {"issue_key": "AC-12851", "current_status": "Further Info Requested", "assignee": "Hazel Robide", "team": "", "days_in_status": 114, "bucket": ">30d"}, {"issue_key": "AC-12949", "current_status": "Further Info Requested", "assignee": "Christine Mae D. Aron", "team": "", "days_in_status": 113, "bucket": ">30d"}];
+const REOPEN    = [{"week": "2024-W39", "tickets_done": 1, "reopens": 0, "reopen_rate_pct": 0.0}, {"week": "2025-W30", "tickets_done": 1, "reopens": 0, "reopen_rate_pct": 0.0}, {"week": "2025-W31", "tickets_done": 0, "reopens": 1, "reopen_rate_pct": ""}, {"week": "2025-W33", "tickets_done": 1, "reopens": 1, "reopen_rate_pct": 100.0}, {"week": "2025-W37", "tickets_done": 1, "reopens": 0, "reopen_rate_pct": 0.0}, {"week": "2025-W38", "tickets_done": 0, "reopens": 1, "reopen_rate_pct": ""}, {"week": "2025-W50", "tickets_done": 1, "reopens": 1, "reopen_rate_pct": 100.0}, {"week": "2025-W52", "tickets_done": 23, "reopens": 0, "reopen_rate_pct": 0.0}, {"week": "2026-W00", "tickets_done": 4, "reopens": 1, "reopen_rate_pct": 25.0}, {"week": "2026-W01", "tickets_done": 13, "reopens": 14, "reopen_rate_pct": 107.7}, {"week": "2026-W02", "tickets_done": 17, "reopens": 9, "reopen_rate_pct": 52.9}, {"week": "2026-W03", "tickets_done": 16, "reopens": 13, "reopen_rate_pct": 81.2}, {"week": "2026-W04", "tickets_done": 30, "reopens": 15, "reopen_rate_pct": 50.0}, {"week": "2026-W05", "tickets_done": 38, "reopens": 29, "reopen_rate_pct": 76.3}, {"week": "2026-W06", "tickets_done": 58, "reopens": 29, "reopen_rate_pct": 50.0}, {"week": "2026-W07", "tickets_done": 64, "reopens": 47, "reopen_rate_pct": 73.4}, {"week": "2026-W08", "tickets_done": 211, "reopens": 42, "reopen_rate_pct": 19.9}];
+const TIS       = [{"status": "DUE", "count": 7558, "avg_hours": 1006.3, "p50_hours": 1301.74, "p90_hours": 1309.5}, {"status": "Done", "count": 217, "avg_hours": 604.93, "p50_hours": 464.9, "p90_hours": 1298.94}, {"status": "Further Info Requested", "count": 1286, "avg_hours": 349.65, "p50_hours": 181.56, "p90_hours": 867.45}, {"status": "Pending initial review", "count": 2269, "avg_hours": 342.26, "p50_hours": 239.81, "p90_hours": 799.57}, {"status": "CUSTOMER SUBMITTED", "count": 3449, "avg_hours": 251.23, "p50_hours": 151.52, "p90_hours": 620.51}, {"status": "SUBMITTED FOR SIGNATURE", "count": 973, "avg_hours": 232.21, "p50_hours": 87.63, "p90_hours": 533.72}, {"status": "Accounts signed", "count": 539, "avg_hours": 215.24, "p50_hours": 133.37, "p90_hours": 537.48}, {"status": "Pending WP review", "count": 1319, "avg_hours": 188.21, "p50_hours": 136.34, "p90_hours": 451.23}, {"status": "CT600 filed", "count": 401, "avg_hours": 142.36, "p50_hours": 94.58, "p90_hours": 159.8}, {"status": "Reviewing", "count": 1304, "avg_hours": 82.24, "p50_hours": 4.05, "p90_hours": 240.28}];
+const ASSIGNEE  = [{"group": "Assignee: (unassigned)", "count": 1, "cycle_avg_h": 193.48, "cycle_p50_h": 193.48, "cycle_p90_h": 193.48, "lead_avg_h": 2232.84, "lead_p50_h": 2232.84, "lead_p90_h": 2232.84}, {"group": "Assignee: Austine Jerusalem", "count": 20, "cycle_avg_h": 1690.71, "cycle_p50_h": 1093.13, "cycle_p90_h": 4843.0, "lead_avg_h": 2237.12, "lead_p50_h": 1156.0, "lead_p90_h": 5910.0}, {"group": "Assignee: Cendilyn Galas", "count": 10, "cycle_avg_h": 820.86, "cycle_p50_h": 696.55, "cycle_p90_h": 1201.44, "lead_avg_h": 903.02, "lead_p50_h": 727.67, "lead_p90_h": 1202.96}, {"group": "Assignee: Ian Paul Francisco", "count": 38, "cycle_avg_h": 1335.75, "cycle_p50_h": 1170.22, "cycle_p90_h": 2264.33, "lead_avg_h": 1822.55, "lead_p50_h": 1245.47, "lead_p90_h": 5452.82}, {"group": "Assignee: Janelle De Leon", "count": 16, "cycle_avg_h": 1027.85, "cycle_p50_h": 980.76, "cycle_p90_h": 1242.71, "lead_avg_h": 2612.97, "lead_p50_h": 1268.06, "lead_p90_h": 9243.2}, {"group": "Assignee: Jeaza May Dalusong", "count": 28, "cycle_avg_h": 1093.22, "cycle_p50_h": 1137.38, "cycle_p90_h": 1195.0, "lead_avg_h": 1541.9, "lead_p50_h": 1198.13, "lead_p90_h": 1223.71}, {"group": "Assignee: Jessica Constantino", "count": 45, "cycle_avg_h": 1301.99, "cycle_p50_h": 958.46, "cycle_p90_h": 3853.51, "lead_avg_h": 2409.65, "lead_p50_h": 1180.31, "lead_p90_h": 6511.39}, {"group": "Assignee: Joy Casuga", "count": 33, "cycle_avg_h": 1742.24, "cycle_p50_h": 1080.85, "cycle_p90_h": 4596.03, "lead_avg_h": 3511.79, "lead_p50_h": 1284.6, "lead_p90_h": 6512.1}, {"group": "Assignee: Kristine Cinense", "count": 14, "cycle_avg_h": 2582.19, "cycle_p50_h": 1171.6, "cycle_p90_h": 5215.05, "lead_avg_h": 4721.89, "lead_p50_h": 5215.06, "lead_p90_h": 9265.99}, {"group": "Assignee: Lloyd Cudiamat", "count": 50, "cycle_avg_h": 1308.07, "cycle_p50_h": 882.28, "cycle_p90_h": 4119.88, "lead_avg_h": 1600.42, "lead_p50_h": 1184.05, "lead_p90_h": 4603.13}];
+const EVENTS    = [{"key": "AC-15871", "from": "SUBMITTED FOR SIGNATURE", "to": "Accounts signed", "at": "2026-02-28 14:48", "by": "jira-bot", "assignee": "Michelle Manzano", "due": ""}, {"key": "AC-19733", "from": "Accounts ready", "to": "SUBMITTED FOR SIGNATURE", "at": "2026-02-28 14:43", "by": "jira-bot", "assignee": "Michelle Manzano", "due": ""}, {"key": "AC-17829", "from": "SUBMITTED FOR SIGNATURE", "to": "Accounts signed", "at": "2026-02-28 14:40", "by": "jira-bot", "assignee": "Mikha Manalo", "due": ""}, {"key": "AC-15469", "from": "Preparing accounts", "to": "Pending AC Review", "at": "2026-02-28 14:33", "by": "Jeaza May Dalusong", "assignee": "Jeaza May Dalusong", "due": ""}, {"key": "AC-15469", "from": "Reviewing WP", "to": "Preparing accounts", "at": "2026-02-28 14:30", "by": "Jeaza May Dalusong", "assignee": "Jeaza May Dalusong", "due": ""}, {"key": "AC-15469", "from": "Pending WP review", "to": "Reviewing WP", "at": "2026-02-28 13:40", "by": "Jeaza May Dalusong", "assignee": "Jeaza May Dalusong", "due": ""}, {"key": "AC-13761", "from": "Accounts ready", "to": "SUBMITTED FOR SIGNATURE", "at": "2026-02-28 13:39", "by": "jira-bot", "assignee": "Jeaza May Dalusong", "due": ""}, {"key": "AC-12958", "from": "Accounts ready", "to": "SUBMITTED FOR SIGNATURE", "at": "2026-02-28 13:26", "by": "jira-bot", "assignee": "Jeaza May Dalusong", "due": ""}, {"key": "AC-14055", "from": "SUBMITTED FOR SIGNATURE", "to": "Accounts signed", "at": "2026-02-28 13:25", "by": "jira-bot", "assignee": "Jeaza May Dalusong", "due": ""}, {"key": "AC-15580", "from": "Accounts ready", "to": "SUBMITTED FOR SIGNATURE", "at": "2026-02-28 13:14", "by": "jira-bot", "assignee": "Jeaza May Dalusong", "due": ""}, {"key": "AC-15758", "from": "SUBMITTED FOR SIGNATURE", "to": "Accounts signed", "at": "2026-02-28 13:07", "by": "jira-bot", "assignee": "Lloyd Cudiamat", "due": ""}, {"key": "AC-15901", "from": "Accounts ready", "to": "SUBMITTED FOR SIGNATURE", "at": "2026-02-28 12:56", "by": "jira-bot", "assignee": "Jeaza May Dalusong", "due": ""}, {"key": "AC-17325", "from": "SUBMITTED FOR SIGNATURE", "to": "Accounts signed", "at": "2026-02-28 12:53", "by": "jira-bot", "assignee": "Ian Paul Francisco", "due": ""}, {"key": "AC-16021", "from": "Accounts ready", "to": "SUBMITTED FOR SIGNATURE", "at": "2026-02-28 12:47", "by": "jira-bot", "assignee": "Jeaza May Dalusong", "due": ""}, {"key": "AC-14055", "from": "Accounts ready", "to": "SUBMITTED FOR SIGNATURE", "at": "2026-02-28 12:32", "by": "jira-bot", "assignee": "Jeaza May Dalusong", "due": ""}, {"key": "AC-17318", "from": "SUBMITTED FOR SIGNATURE", "to": "Accounts signed", "at": "2026-02-28 12:31", "by": "jira-bot", "assignee": "Ian Paul Francisco", "due": ""}, {"key": "AC-16239", "from": "Accounts ready", "to": "SUBMITTED FOR SIGNATURE", "at": "2026-02-28 12:23", "by": "jira-bot", "assignee": "Jeaza May Dalusong", "due": ""}, {"key": "AC-12644", "from": "Accounts signed", "to": "CT600 filed", "at": "2026-02-28 12:12", "by": "Hazel Robide", "assignee": "Jeaza May Dalusong", "due": ""}, {"key": "AC-15363", "from": "Accounts ready", "to": "SUBMITTED FOR SIGNATURE", "at": "2026-02-28 12:09", "by": "jira-bot", "assignee": "Kristine Cinense", "due": ""}, {"key": "AC-15460", "from": "Accounts ready", "to": "SUBMITTED FOR SIGNATURE", "at": "2026-02-28 12:07", "by": "jira-bot", "assignee": "Kristine Cinense", "due": ""}, {"key": "AC-15532", "from": "Accounts ready", "to": "SUBMITTED FOR SIGNATURE", "at": "2026-02-28 12:05", "by": "jira-bot", "assignee": "Kristine Cinense", "due": ""}, {"key": "AC-16035", "from": "Accounts ready", "to": "SUBMITTED FOR SIGNATURE", "at": "2026-02-28 12:03", "by": "jira-bot", "assignee": "Kristine Cinense", "due": ""}, {"key": "AC-16374", "from": "Accounts ready", "to": "SUBMITTED FOR SIGNATURE", "at": "2026-02-28 12:01", "by": "jira-bot", "assignee": "Kristine Cinense", "due": ""}, {"key": "AC-19733", "from": "Pending AC Review", "to": "Accounts ready", "at": "2026-02-28 11:59", "by": "Russell Kian Carbonilla", "assignee": "Michelle Manzano", "due": ""}, {"key": "AC-17180", "from": "Accounts ready", "to": "SUBMITTED FOR SIGNATURE", "at": "2026-02-28 11:59", "by": "jira-bot", "assignee": "Kristine Cinense", "due": ""}, {"key": "AC-12633", "from": "Accounts signed", "to": "CT600 filed", "at": "2026-02-28 11:57", "by": "Hazel Robide", "assignee": "Jeaza May Dalusong", "due": ""}, {"key": "AC-17210", "from": "Accounts ready", "to": "SUBMITTED FOR SIGNATURE", "at": "2026-02-28 11:56", "by": "jira-bot", "assignee": "Kristine Cinense", "due": ""}, {"key": "AC-17762", "from": "Accounts ready", "to": "SUBMITTED FOR SIGNATURE", "at": "2026-02-28 11:53", "by": "jira-bot", "assignee": "Kristine Cinense", "due": ""}, {"key": "AC-20023", "from": "Accounts signed", "to": "CT600 filed", "at": "2026-02-28 11:50", "by": "Hazel Robide", "assignee": "Jeaza May Dalusong", "due": ""}, {"key": "AC-17834", "from": "Accounts ready", "to": "SUBMITTED FOR SIGNATURE", "at": "2026-02-28 11:49", "by": "jira-bot", "assignee": "Kristine Cinense", "due": ""}, {"key": "AC-18593", "from": "Accounts ready", "to": "SUBMITTED FOR SIGNATURE", "at": "2026-02-28 11:45", "by": "jira-bot", "assignee": "Kristine Cinense", "due": ""}, {"key": "AC-12623", "from": "Accounts signed", "to": "CT600 filed", "at": "2026-02-28 11:36", "by": "Jessica Constantino", "assignee": "Jessica Constantino", "due": ""}, {"key": "AC-18645", "from": "Accounts signed", "to": "CT600 filed", "at": "2026-02-28 11:28", "by": "Jasmine Villa", "assignee": "Manny Leth De Luna", "due": ""}, {"key": "AC-18109", "from": "DUE", "to": "CUSTOMER SUBMITTED", "at": "2026-02-28 11:25", "by": "jira-bot", "assignee": "", "due": ""}, {"key": "AC-19439", "from": "Accounts signed", "to": "CT600 filed", "at": "2026-02-28 11:17", "by": "Jasmine Villa", "assignee": "Manny Leth De Luna", "due": ""}, {"key": "AC-12623", "from": "SUBMITTED FOR SIGNATURE", "to": "Accounts signed", "at": "2026-02-28 11:15", "by": "jira-bot", "assignee": "Jessica Constantino", "due": ""}, {"key": "AC-19571", "from": "Accounts signed", "to": "CT600 filed", "at": "2026-02-28 11:03", "by": "Jasmine Villa", "assignee": "Manny Leth De Luna", "due": ""}, {"key": "AC-19678", "from": "Accounts signed", "to": "CT600 filed", "at": "2026-02-28 10:54", "by": "Jasmine Villa", "assignee": "Manny Leth De Luna", "due": ""}, {"key": "AC-18569", "from": "SUBMITTED FOR SIGNATURE", "to": "Accounts signed", "at": "2026-02-28 10:45", "by": "jira-bot", "assignee": "Austine Jerusalem", "due": ""}, {"key": "AC-19789", "from": "Accounts signed", "to": "CT600 filed", "at": "2026-02-28 10:45", "by": "Jasmine Villa", "assignee": "Manny Leth De Luna", "due": ""}, {"key": "AC-16207", "from": "SUBMITTED FOR SIGNATURE", "to": "Accounts signed", "at": "2026-02-28 10:10", "by": "jira-bot", "assignee": "Michelle Manzano", "due": ""}, {"key": "AC-15978", "from": "Accounts signed", "to": "Accounts signed", "at": "2026-02-28 10:10", "by": "jira-bot", "assignee": "Michelle Manzano", "due": ""}, {"key": "AC-15978", "from": "SUBMITTED FOR SIGNATURE", "to": "Accounts signed", "at": "2026-02-28 10:10", "by": "jira-bot", "assignee": "Michelle Manzano", "due": ""}, {"key": "AC-19464", "from": "Accounts ready", "to": "SUBMITTED FOR SIGNATURE", "at": "2026-02-28 10:05", "by": "jira-bot", "assignee": "Michelle Manzano", "due": ""}, {"key": "AC-19465", "from": "Accounts ready", "to": "SUBMITTED FOR SIGNATURE", "at": "2026-02-28 10:04", "by": "jira-bot", "assignee": "Michelle Manzano", "due": ""}, {"key": "AC-18923", "from": "Accounts ready", "to": "SUBMITTED FOR SIGNATURE", "at": "2026-02-28 10:02", "by": "jira-bot", "assignee": "Michelle Manzano", "due": ""}, {"key": "AC-12992", "from": "Accounts ready", "to": "SUBMITTED FOR SIGNATURE", "at": "2026-02-28 10:00", "by": "jira-bot", "assignee": "Michelle Manzano", "due": ""}, {"key": "AC-15978", "from": "Accounts ready", "to": "SUBMITTED FOR SIGNATURE", "at": "2026-02-28 09:58", "by": "jira-bot", "assignee": "Michelle Manzano", "due": ""}, {"key": "AC-18211", "from": "DUE", "to": "CUSTOMER SUBMITTED", "at": "2026-02-28 09:56", "by": "jira-bot", "assignee": "", "due": ""}, {"key": "AC-15497", "from": "SUBMITTED FOR SIGNATURE", "to": "Accounts signed", "at": "2026-02-28 09:54", "by": "jira-bot", "assignee": "Austine Jerusalem", "due": ""}];
+
+const COLORS = ['#4f9cf9','#c97bf9','#f9c44f','#4fca8f','#f97b4f','#4fc9f9','#f94f9c','#9cf94f','#f9a44f','#4f4ff9'];
+
+function show(id, el) {
+  document.querySelectorAll('.content').forEach(e => e.classList.remove('active'));
+  document.querySelectorAll('.tab').forEach(e => e.classList.remove('active'));
+  document.getElementById(id).classList.add('active');
+  el.classList.add('active');
+}
+
+function badge(text, color) {
+  return `<span class="badge" style="background:${color}22;color:${color}">${text}</span>`;
+}
+
+function statusColor(s) {
+  s = (s||'').toLowerCase();
+  if (s.includes('filed') || s.includes('signed')) return '#4fca8f';
+  if (s.includes('further info') || s.includes('pending')) return '#f9c44f';
+  if (s.includes('review')) return '#c97bf9';
+  if (s.includes('submitted')) return '#4f9cf9';
+  if (s.includes('preparing')) return '#4fc9f9';
+  return '#6b7699';
+}
+
+// Throughput chart
+(function() {
+  const wrap = document.getElementById('throughput-chart');
+  if (!THROUGHPUT.length) return;
+  const max = Math.max(...THROUGHPUT.map(d => +d.tickets_done));
+  THROUGHPUT.slice(-10).forEach(d => {
+    const pct = Math.round((+d.tickets_done / max) * 100);
+    const col = document.createElement('div');
+    col.className = 'spark-col';
+    col.innerHTML = `<div class="spark-val">${d.tickets_done}</div><div class="spark-bar" style="height:${pct}%;min-height:4px"></div><div class="spark-label">${(d.week||'').slice(-3)}</div>`;
+    wrap.appendChild(col);
+  });
+})();
+
+// WIP chart
+(function() {
+  const wrap = document.getElementById('wip-chart');
+  if (!WIP.length) return;
+  const max = Math.max(...WIP.map(d => +d.wip_count));
+  WIP.forEach((d,i) => {
+    const pct = Math.round((+d.wip_count / max) * 100);
+    const color = COLORS[i % COLORS.length];
+    wrap.innerHTML += `<div class="bar-row"><div class="bar-label" title="${d.status}">${d.status}</div><div class="bar-track"><div class="bar-fill" style="width:${pct}%;background:${color}">${d.wip_count}</div></div></div>`;
+  });
+})();
+
+// Stuck where chart
+(function() {
+  const wrap = document.getElementById('stuck-chart');
+  if (!AGING.length) return;
+  const byStatus = {};
+  AGING.forEach(r => { byStatus[r.current_status] = (byStatus[r.current_status]||0)+1; });
+  const sorted = Object.entries(byStatus).sort((a,b)=>b[1]-a[1]).slice(0,6);
+  const max = sorted[0]?.[1] || 1;
+  sorted.forEach(([s,n],i)=>{
+    const pct = Math.round((n/max)*100);
+    const color = COLORS[i%COLORS.length];
+    wrap.innerHTML += `<div class="bar-row"><div class="bar-label" title="${s}">${s}</div><div class="bar-track"><div class="bar-fill" style="width:${pct}%;background:${color}">${n} tickets</div></div></div>`;
+  });
+})();
+
+// Reopen chart
+(function() {
+  const wrap = document.getElementById('reopen-chart');
+  if (!REOPEN.length) return;
+  const max = Math.max(...REOPEN.map(d => +(d.reopen_rate_pct||0))) || 1;
+  REOPEN.slice(-8).forEach(d => {
+    const pct = Math.round((+(d.reopen_rate_pct||0)/max)*100);
+    const color = +d.reopen_rate_pct > 5 ? '#f97b4f' : +d.reopen_rate_pct > 3 ? '#f9c44f' : '#4fca8f';
+    wrap.innerHTML += `<div class="bar-row"><div class="bar-label">${(d.week||'').slice(-3)}</div><div class="bar-track"><div class="bar-fill" style="width:${Math.max(pct,4)}%;background:${color}">${d.reopen_rate_pct}%</div></div><div class="bar-val">${d.reopens||0} / ${d.tickets_done||0}</div></div>`;
+  });
+})();
+
+// Aging table
+(function() {
+  const body = document.getElementById('aging-body');
+  if (!AGING.length) { body.innerHTML = '<tr><td colspan="6" style="color:var(--muted);text-align:center;padding:20px">No stuck tickets 🎉</td></tr>'; return; }
+  AGING.forEach(r => {
+    const days = +r.days_in_status;
+    const dcolor = days>=30?'#ff4444':days>=10?'var(--danger)':'var(--warn)';
+    const sc = statusColor(r.current_status);
+    body.innerHTML += `<tr>
+      <td style="color:var(--accent)">${r.issue_key}</td>
+      <td>${badge(r.current_status, sc)}</td>
+      <td>${r.assignee||'—'}</td>
+      <td style="color:${dcolor};font-weight:500">${days}d</td>
+      <td>${r.team_field||'—'}</td>
+      <td>${badge(r.bucket, dcolor)}</td>
+    </tr>`;
+  });
+})();
+
+// Cycle time by assignee
+(function() {
+  const wrap = document.getElementById('cycle-chart');
+  if (!ASSIGNEE.length) { wrap.innerHTML='<div style="color:var(--muted);font-size:12px">Not enough data yet</div>'; return; }
+  const max = Math.max(...ASSIGNEE.map(d=>+(d.cycle_avg_h||0)/24));
+  ASSIGNEE.forEach((d,i)=>{
+    const name = (d.group||'').replace('Assignee: ','');
+    const days = +(d.cycle_avg_h||0)/24;
+    const p90 = +(d.cycle_p90_h||0)/24;
+    const pct = Math.round((days/max)*100);
+    wrap.innerHTML += `<div class="bar-row"><div class="bar-label" title="${name}">${name}</div><div class="bar-track"><div class="bar-fill" style="width:${Math.max(pct,4)}%;background:var(--accent)">${days.toFixed(1)}d avg</div></div><div class="bar-val">p90:${p90.toFixed(0)}d</div></div>`;
+  });
+})();
+
+// Time in status
+(function() {
+  const wrap = document.getElementById('tis-chart');
+  if (!TIS.length) return;
+  const max = Math.max(...TIS.map(d=>+(d.avg_hours||0)/24));
+  TIS.forEach((d,i)=>{
+    const days = (+(d.avg_hours||0)/24).toFixed(1);
+    const pct = Math.round((+(d.avg_hours||0)/24/max)*100);
+    const color = COLORS[i%COLORS.length];
+    wrap.innerHTML += `<div class="bar-row"><div class="bar-label" title="${d.status}">${d.status}</div><div class="bar-track"><div class="bar-fill" style="width:${Math.max(pct,4)}%;background:${color}">${days}d</div></div></div>`;
+  });
+})();
+
+// Recent events
+(function() {
+  const body = document.getElementById('events-body');
+  if (!EVENTS.length) { body.innerHTML='<tr><td colspan="7" style="color:var(--muted);text-align:center;padding:20px">No events yet</td></tr>'; return; }
+  EVENTS.forEach(e=>{
+    const fc=statusColor(e.from), tc=statusColor(e.to);
+    body.innerHTML+=`<tr>
+      <td style="color:var(--accent)">${e.key}</td>
+      <td>${badge(e.from,fc)}</td>
+      <td>${badge(e.to,tc)}</td>
+      <td style="color:var(--muted)">${e.at}</td>
+      <td>${e.by||'—'}</td>
+      <td>${e.assignee||'—'}</td>
+      <td>${e.due||'—'}</td>
+    </tr>`;
+  });
+})();
+</script>
+</body>
+</html>
