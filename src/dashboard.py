@@ -1,16 +1,20 @@
 """
 src/dashboard.py — generate a self-contained HTML dashboard from metrics + events.
-Called automatically at the end of every sync run.
-Output: dashboard/index.html (open in browser or host on GitHub Pages)
 """
 
 import json
 import logging
 import os
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List
 
 log = logging.getLogger(__name__)
+
+
+def _get_week_label(offset=0):
+    """Get ISO week label for current week (offset=0) or last week (offset=-1)."""
+    dt = datetime.now(timezone.utc) + timedelta(weeks=offset)
+    return dt.strftime("%Y-W%W")
 
 
 def generate_dashboard(
@@ -21,60 +25,77 @@ def generate_dashboard(
 ):
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
 
-    # ── Extract data for charts ───────────────────────────────────────────────
-    throughput = _extract_table(metrics.get("throughput", []))
-    cycle_time = _extract_table(metrics.get("cycle_time", []))
-    wip = _extract_table(metrics.get("wip", []))
-    aging = _extract_table(metrics.get("aging_wip", []))
-    reopen = _extract_table(metrics.get("reopen_rate", []))
-    tis = _extract_table(metrics.get("time_in_status", []))
+    def _extract(key):
+        table = metrics.get(key, [])
+        if not table or len(table) < 2:
+            return []
+        header = table[0]
+        return [dict(zip(header, row)) for row in table[1:]]
 
-    # KPI summary values
+    throughput    = _extract("throughput")
+    submitted     = _extract("submitted_for_signature")
+    cycle_time    = _extract("cycle_time")
+    wip           = _extract("wip")
+    aging         = _extract("aging_wip")
+    reopen        = _extract("reopen_rate")
+    tis           = _extract("time_in_status")
+
+    # ── KPI: Submitted for Signature this week vs last week ──────────────────
+    this_week = _get_week_label(0)
+    last_week = _get_week_label(-1)
+
+    def _week_val(table, week, col):
+        row = next((r for r in table if r.get("week") == week), {})
+        return int(row.get(col, 0))
+
+    sig_this  = _week_val(submitted, this_week, "submitted_for_signature")
+    sig_last  = _week_val(submitted, last_week, "submitted_for_signature")
+    sig_delta = sig_this - sig_last
+
+    # ── KPI: WIP total (exclude Done) ────────────────────────────────────────
     total_wip = sum(int(r.get("wip_count", 0)) for r in wip)
-    done_this_week = throughput[-1]["tickets_done"] if throughput else 0
-    done_last_week = throughput[-2]["tickets_done"] if len(throughput) > 1 else 0
-    throughput_delta = int(done_this_week) - int(done_last_week)
 
-    overall_ct = next((r for r in cycle_time if r.get("group") == "Overall"), {})
-    cycle_avg = overall_ct.get("cycle_avg_h", "")
-    cycle_avg_days = round(float(cycle_avg) / 24, 1) if cycle_avg else "—"
-    cycle_p50 = round(float(overall_ct.get("cycle_p50_h", 0)) / 24, 1) if overall_ct.get("cycle_p50_h") else "—"
-    cycle_p90 = round(float(overall_ct.get("cycle_p90_h", 0)) / 24, 1) if overall_ct.get("cycle_p90_h") else "—"
+    # ── KPI: Cycle time overall ───────────────────────────────────────────────
+    overall_ct   = next((r for r in cycle_time if r.get("group") == "Overall"), {})
+    cycle_avg    = overall_ct.get("cycle_avg_h", "")
+    cycle_avg_d  = round(float(cycle_avg) / 24, 1) if cycle_avg else "—"
+    cycle_p50_d  = round(float(overall_ct.get("cycle_p50_h", 0)) / 24, 1) if overall_ct.get("cycle_p50_h") else "—"
+    cycle_p90_d  = round(float(overall_ct.get("cycle_p90_h", 0)) / 24, 1) if overall_ct.get("cycle_p90_h") else "—"
 
-    reopen_rate = reopen[-1].get("reopen_rate_pct", "—") if reopen else "—"
-    reopen_last = reopen[-2].get("reopen_rate_pct", "—") if len(reopen) > 1 else "—"
-    try:
-        reopen_delta = round(float(reopen_rate) - float(reopen_last), 1)
-    except (TypeError, ValueError):
-        reopen_delta = None
+    # ── KPI: Reopen rate ─────────────────────────────────────────────────────
+    reopen_rate  = reopen[-1].get("reopen_rate_pct", "—") if reopen else "—"
 
-    stuck_5 = sum(1 for r in aging if r.get("bucket") in (">5d", ">10d", ">30d"))
+    # ── Aging counts (already excludes Done + Due) ────────────────────────────
+    stuck_5  = len(aging)
     stuck_10 = sum(1 for r in aging if r.get("bucket") in (">10d", ">30d"))
     stuck_30 = sum(1 for r in aging if r.get("bucket") == ">30d")
 
-    last_sync = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    last_sync    = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     total_issues = len(issues)
 
-    # ── Recent movement events (last 50) ─────────────────────────────────────
     recent_events = sorted(events, key=lambda e: e.get("changed_at", ""), reverse=True)[:50]
 
-    # ── JSON payloads for JS ──────────────────────────────────────────────────
+    # JSON payloads
+    submitted_json  = json.dumps(submitted)
     throughput_json = json.dumps(throughput)
-    wip_json = json.dumps(wip[:12])  # top 12 statuses
-    aging_json = json.dumps(sorted(aging, key=lambda r: int(r.get("days_in_status", 0)), reverse=True)[:20])
-    reopen_json = json.dumps(reopen)
-    tis_json = json.dumps(sorted(tis, key=lambda r: float(r.get("avg_hours", 0)), reverse=True)[:10])
-    assignee_ct = [r for r in cycle_time if r.get("group", "").startswith("Assignee:")]
-    assignee_json = json.dumps(assignee_ct[:10])
-    events_json = json.dumps([{
-        "key": e.get("issue_key", ""),
-        "from": e.get("from_status", ""),
-        "to": e.get("to_status", ""),
-        "at": e.get("changed_at", "")[:16].replace("T", " "),
-        "by": e.get("changed_by", ""),
+    wip_json        = json.dumps(wip[:12])
+    aging_json      = json.dumps(sorted(aging, key=lambda r: int(r.get("days_in_status", 0)), reverse=True))
+    reopen_json     = json.dumps(reopen)
+    tis_json        = json.dumps(sorted(tis, key=lambda r: float(r.get("avg_hours", 0)), reverse=True)[:10])
+    assignee_ct     = [r for r in cycle_time if r.get("group", "").startswith("Assignee:")]
+    assignee_json   = json.dumps(assignee_ct[:10])
+    events_json     = json.dumps([{
+        "key":      e.get("issue_key", ""),
+        "from":     e.get("from_status", ""),
+        "to":       e.get("to_status", ""),
+        "at":       e.get("changed_at", "")[:16].replace("T", " "),
+        "by":       e.get("changed_by", ""),
         "assignee": e.get("assignee", ""),
-        "due": e.get("team_field", ""),
+        "due":      e.get("team_field", ""),
     } for e in recent_events])
+
+    sig_trend = ('↑ ' + str(abs(sig_delta)) + ' vs last week') if sig_delta >= 0 else ('↓ ' + str(abs(sig_delta)) + ' vs last week')
+    sig_trend_class = 'trend-up' if sig_delta >= 0 else 'trend-down'
 
     html = f"""<!DOCTYPE html>
 <html lang="en">
@@ -107,12 +128,11 @@ def generate_dashboard(
   .trend-up{{color:var(--accent3)}} .trend-down{{color:var(--danger)}}
   .grid2{{display:grid;grid-template-columns:1.6fr 1fr;gap:12px;margin-bottom:12px}}
   .grid3{{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:12px}}
-  .grid1{{margin-bottom:12px}}
   .card{{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:18px 20px}}
   .card h3{{font-size:11px;color:var(--muted);font-family:'DM Mono',monospace;letter-spacing:.06em;text-transform:uppercase;margin-bottom:16px}}
   .bar-chart{{display:flex;flex-direction:column;gap:6px}}
   .bar-row{{display:flex;align-items:center;gap:8px}}
-  .bar-label{{width:140px;font-size:10px;color:var(--muted);text-align:right;flex-shrink:0;font-family:'DM Mono',monospace;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}}
+  .bar-label{{width:160px;font-size:10px;color:var(--muted);text-align:right;flex-shrink:0;font-family:'DM Mono',monospace;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}}
   .bar-track{{flex:1;background:var(--surface2);border-radius:2px;height:18px;overflow:hidden}}
   .bar-fill{{height:100%;border-radius:2px;display:flex;align-items:center;padding-left:6px;font-size:10px;font-family:'DM Mono',monospace;color:rgba(255,255,255,.8);white-space:nowrap}}
   .bar-val{{width:40px;font-size:10px;font-family:'DM Mono',monospace;color:var(--muted);text-align:right;flex-shrink:0}}
@@ -152,14 +172,14 @@ def generate_dashboard(
 <div class="content active" id="dashboard">
   <div class="kpi-row">
     <div class="kpi">
-      <div class="label">This Week — Done</div>
-      <div class="value" style="color:var(--accent3)">{done_this_week}</div>
-      <div class="sub {'trend-up' if throughput_delta >= 0 else 'trend-down'}">{'↑' if throughput_delta >= 0 else '↓'} {abs(throughput_delta)} vs last week</div>
+      <div class="label">This Week — Submitted for Signature</div>
+      <div class="value" style="color:var(--accent3)">{sig_this}</div>
+      <div class="sub {sig_trend_class}">{sig_trend}</div>
     </div>
     <div class="kpi">
       <div class="label">Avg Cycle Time</div>
-      <div class="value" style="color:var(--accent)">{cycle_avg_days}<span style="font-size:14px;color:var(--muted)"> days</span></div>
-      <div class="sub">p50: {cycle_p50}d &nbsp;·&nbsp; p90: {cycle_p90}d</div>
+      <div class="value" style="color:var(--accent)">{cycle_avg_d}<span style="font-size:14px;color:var(--muted)"> days</span></div>
+      <div class="sub">p50: {cycle_p50_d}d &nbsp;·&nbsp; p90: {cycle_p90_d}d</div>
     </div>
     <div class="kpi">
       <div class="label">Current WIP</div>
@@ -173,11 +193,12 @@ def generate_dashboard(
     </div>
   </div>
   <div class="grid2">
-    <div class="card"><h3>Weekly Throughput — Tickets Completed</h3><div class="spark-wrap" id="throughput-chart"></div></div>
+    <div class="card"><h3>Weekly — Submitted for Signature</h3><div class="spark-wrap" id="submitted-chart"></div></div>
     <div class="card"><h3>WIP by Status</h3><div class="bar-chart" id="wip-chart"></div></div>
   </div>
   <div class="grid2">
-    <div class="card"><h3>Time Stuck — Aging WIP Summary</h3>
+    <div class="card">
+      <h3>Stuck Tickets Summary (excl. Done &amp; Due)</h3>
       <div class="aging-grid">
         <div class="aging-box"><div class="aging-num" style="color:var(--warn)">{stuck_5}</div><div class="aging-lbl">stuck &gt;5 days</div></div>
         <div class="aging-box"><div class="aging-num" style="color:var(--danger)">{stuck_10}</div><div class="aging-lbl">stuck &gt;10 days</div></div>
@@ -191,9 +212,12 @@ def generate_dashboard(
 
 <!-- STUCK TICKETS -->
 <div class="content" id="aging">
-  <div class="note">⚠️ Tickets that haven't moved status in 5+ days. Sorted by most stuck first.</div>
+  <div class="note">⚠️ Tickets stuck in the same status for 5+ days. Done and Due statuses are excluded. Sorted by most stuck first.</div>
+  <div style="margin-bottom:12px;font-family:'DM Mono',monospace;font-size:11px;color:var(--muted)">
+    Showing <span id="aging-count" style="color:var(--text)">0</span> stuck tickets
+  </div>
   <div class="overflow">
-    <table id="aging-table">
+    <table>
       <thead><tr><th>ticket</th><th>status</th><th>assignee</th><th>days stuck</th><th>accounting due</th><th>bucket</th></tr></thead>
       <tbody id="aging-body"></tbody>
     </table>
@@ -203,14 +227,14 @@ def generate_dashboard(
 <!-- CYCLE TIME -->
 <div class="content" id="cycle">
   <div class="grid2">
-    <div class="card"><h3>Cycle Time by Assignee (days: avg / p50 / p90)</h3><div class="bar-chart" id="cycle-chart"></div></div>
+    <div class="card"><h3>Cycle Time by Assignee (days: avg / p90)</h3><div class="bar-chart" id="cycle-chart"></div></div>
     <div class="card"><h3>Time Spent in Each Status (avg days)</h3><div class="bar-chart" id="tis-chart"></div></div>
   </div>
 </div>
 
 <!-- RECENT ACTIVITY -->
 <div class="content" id="activity">
-  <div class="note">📋 Last 50 status transitions across all tickets, most recent first.</div>
+  <div class="note">📋 Last 50 status transitions, most recent first.</div>
   <div class="overflow">
     <table>
       <thead><tr><th>ticket</th><th>from</th><th>to</th><th>when</th><th>by</th><th>assignee</th><th>accounting due</th></tr></thead>
@@ -220,13 +244,14 @@ def generate_dashboard(
 </div>
 
 <script>
+const SUBMITTED  = {submitted_json};
 const THROUGHPUT = {throughput_json};
-const WIP       = {wip_json};
-const AGING     = {aging_json};
-const REOPEN    = {reopen_json};
-const TIS       = {tis_json};
-const ASSIGNEE  = {assignee_json};
-const EVENTS    = {events_json};
+const WIP        = {wip_json};
+const AGING      = {aging_json};
+const REOPEN     = {reopen_json};
+const TIS        = {tis_json};
+const ASSIGNEE   = {assignee_json};
+const EVENTS     = {events_json};
 
 const COLORS = ['#4f9cf9','#c97bf9','#f9c44f','#4fca8f','#f97b4f','#4fc9f9','#f94f9c','#9cf94f','#f9a44f','#4f4ff9'];
 
@@ -243,24 +268,26 @@ function badge(text, color) {{
 
 function statusColor(s) {{
   s = (s||'').toLowerCase();
-  if (s.includes('filed') || s.includes('signed')) return '#4fca8f';
+  if (s.includes('filed') || s.includes('ct600')) return '#4fca8f';
+  if (s.includes('signed')) return '#4fca8f';
   if (s.includes('further info') || s.includes('pending')) return '#f9c44f';
   if (s.includes('review')) return '#c97bf9';
   if (s.includes('submitted')) return '#4f9cf9';
   if (s.includes('preparing')) return '#4fc9f9';
+  if (s.includes('customer')) return '#6b7699';
   return '#6b7699';
 }}
 
-// Throughput chart
+// Submitted for Signature chart
 (function() {{
-  const wrap = document.getElementById('throughput-chart');
-  if (!THROUGHPUT.length) return;
-  const max = Math.max(...THROUGHPUT.map(d => +d.tickets_done));
-  THROUGHPUT.slice(-10).forEach(d => {{
-    const pct = Math.round((+d.tickets_done / max) * 100);
+  const wrap = document.getElementById('submitted-chart');
+  if (!SUBMITTED.length) {{ wrap.innerHTML='<div style="color:var(--muted);font-size:12px;padding:20px">No data yet</div>'; return; }}
+  const max = Math.max(...SUBMITTED.map(d => +d.submitted_for_signature));
+  SUBMITTED.slice(-12).forEach(d => {{
+    const pct = Math.round((+d.submitted_for_signature / max) * 100);
     const col = document.createElement('div');
     col.className = 'spark-col';
-    col.innerHTML = `<div class="spark-val">${{d.tickets_done}}</div><div class="spark-bar" style="height:${{pct}}%;min-height:4px"></div><div class="spark-label">${{(d.week||'').slice(-3)}}</div>`;
+    col.innerHTML = `<div class="spark-val">${{d.submitted_for_signature}}</div><div class="spark-bar" style="height:${{Math.max(pct,2)}}%;min-height:4px;background:var(--accent3)"></div><div class="spark-label">${{(d.week||'').slice(-3)}}</div>`;
     wrap.appendChild(col);
   }});
 }})();
@@ -273,7 +300,7 @@ function statusColor(s) {{
   WIP.forEach((d,i) => {{
     const pct = Math.round((+d.wip_count / max) * 100);
     const color = COLORS[i % COLORS.length];
-    wrap.innerHTML += `<div class="bar-row"><div class="bar-label" title="${{d.status}}">${{d.status}}</div><div class="bar-track"><div class="bar-fill" style="width:${{pct}}%;background:${{color}}">${{d.wip_count}}</div></div></div>`;
+    wrap.innerHTML += `<div class="bar-row"><div class="bar-label" title="${{d.status}}">${{d.status}}</div><div class="bar-track"><div class="bar-fill" style="width:${{Math.max(pct,2)}}%;background:${{color}}">${{d.wip_count}}</div></div></div>`;
   }});
 }})();
 
@@ -285,10 +312,10 @@ function statusColor(s) {{
   AGING.forEach(r => {{ byStatus[r.current_status] = (byStatus[r.current_status]||0)+1; }});
   const sorted = Object.entries(byStatus).sort((a,b)=>b[1]-a[1]).slice(0,6);
   const max = sorted[0]?.[1] || 1;
-  sorted.forEach(([s,n],i)=>{{
+  sorted.forEach(([s,n],i) => {{
     const pct = Math.round((n/max)*100);
     const color = COLORS[i%COLORS.length];
-    wrap.innerHTML += `<div class="bar-row"><div class="bar-label" title="${{s}}">${{s}}</div><div class="bar-track"><div class="bar-fill" style="width:${{pct}}%;background:${{color}}">${{n}} tickets</div></div></div>`;
+    wrap.innerHTML += `<div class="bar-row"><div class="bar-label" title="${{s}}">${{s}}</div><div class="bar-track"><div class="bar-fill" style="width:${{Math.max(pct,2)}}%;background:${{color}}">${{n}} tickets</div></div></div>`;
   }});
 }})();
 
@@ -300,14 +327,19 @@ function statusColor(s) {{
   REOPEN.slice(-8).forEach(d => {{
     const pct = Math.round((+(d.reopen_rate_pct||0)/max)*100);
     const color = +d.reopen_rate_pct > 5 ? '#f97b4f' : +d.reopen_rate_pct > 3 ? '#f9c44f' : '#4fca8f';
-    wrap.innerHTML += `<div class="bar-row"><div class="bar-label">${{(d.week||'').slice(-3)}}</div><div class="bar-track"><div class="bar-fill" style="width:${{Math.max(pct,4)}}%;background:${{color}}">${{d.reopen_rate_pct}}%</div></div><div class="bar-val">${{d.reopens||0}} / ${{d.tickets_done||0}}</div></div>`;
+    wrap.innerHTML += `<div class="bar-row"><div class="bar-label">${{(d.week||'').slice(-3)}}</div><div class="bar-track"><div class="bar-fill" style="width:${{Math.max(pct,2)}}%;background:${{color}}">${{d.reopen_rate_pct}}%</div></div><div class="bar-val">${{d.reopens||0}}/${{d.tickets_done||0}}</div></div>`;
   }});
 }})();
 
-// Aging table
+// Stuck tickets full table
 (function() {{
   const body = document.getElementById('aging-body');
-  if (!AGING.length) {{ body.innerHTML = '<tr><td colspan="6" style="color:var(--muted);text-align:center;padding:20px">No stuck tickets 🎉</td></tr>'; return; }}
+  const counter = document.getElementById('aging-count');
+  if (!AGING.length) {{
+    body.innerHTML = '<tr><td colspan="6" style="color:var(--muted);text-align:center;padding:20px">No stuck tickets 🎉</td></tr>';
+    return;
+  }}
+  counter.textContent = AGING.length;
   AGING.forEach(r => {{
     const days = +r.days_in_status;
     const dcolor = days>=30?'#ff4444':days>=10?'var(--danger)':'var(--warn)';
@@ -327,13 +359,13 @@ function statusColor(s) {{
 (function() {{
   const wrap = document.getElementById('cycle-chart');
   if (!ASSIGNEE.length) {{ wrap.innerHTML='<div style="color:var(--muted);font-size:12px">Not enough data yet</div>'; return; }}
-  const max = Math.max(...ASSIGNEE.map(d=>+(d.cycle_avg_h||0)/24));
-  ASSIGNEE.forEach((d,i)=>{{
+  const max = Math.max(...ASSIGNEE.map(d=>+(d.cycle_avg_h||0)/24)) || 1;
+  ASSIGNEE.forEach((d,i) => {{
     const name = (d.group||'').replace('Assignee: ','');
     const days = +(d.cycle_avg_h||0)/24;
-    const p90 = +(d.cycle_p90_h||0)/24;
-    const pct = Math.round((days/max)*100);
-    wrap.innerHTML += `<div class="bar-row"><div class="bar-label" title="${{name}}">${{name}}</div><div class="bar-track"><div class="bar-fill" style="width:${{Math.max(pct,4)}}%;background:var(--accent)">${{days.toFixed(1)}}d avg</div></div><div class="bar-val">p90:${{p90.toFixed(0)}}d</div></div>`;
+    const p90  = +(d.cycle_p90_h||0)/24;
+    const pct  = Math.round((days/max)*100);
+    wrap.innerHTML += `<div class="bar-row"><div class="bar-label" title="${{name}}">${{name}}</div><div class="bar-track"><div class="bar-fill" style="width:${{Math.max(pct,2)}}%;background:var(--accent)">${{days.toFixed(1)}}d avg</div></div><div class="bar-val">p90:${{p90.toFixed(0)}}d</div></div>`;
   }});
 }})();
 
@@ -341,12 +373,12 @@ function statusColor(s) {{
 (function() {{
   const wrap = document.getElementById('tis-chart');
   if (!TIS.length) return;
-  const max = Math.max(...TIS.map(d=>+(d.avg_hours||0)/24));
-  TIS.forEach((d,i)=>{{
+  const max = Math.max(...TIS.map(d=>+(d.avg_hours||0)/24)) || 1;
+  TIS.forEach((d,i) => {{
     const days = (+(d.avg_hours||0)/24).toFixed(1);
-    const pct = Math.round((+(d.avg_hours||0)/24/max)*100);
+    const pct  = Math.round((+(d.avg_hours||0)/24/max)*100);
     const color = COLORS[i%COLORS.length];
-    wrap.innerHTML += `<div class="bar-row"><div class="bar-label" title="${{d.status}}">${{d.status}}</div><div class="bar-track"><div class="bar-fill" style="width:${{Math.max(pct,4)}}%;background:${{color}}">${{days}}d</div></div></div>`;
+    wrap.innerHTML += `<div class="bar-row"><div class="bar-label" title="${{d.status}}">${{d.status}}</div><div class="bar-track"><div class="bar-fill" style="width:${{Math.max(pct,2)}}%;background:${{color}}">${{days}}d</div></div></div>`;
   }});
 }})();
 
@@ -354,7 +386,7 @@ function statusColor(s) {{
 (function() {{
   const body = document.getElementById('events-body');
   if (!EVENTS.length) {{ body.innerHTML='<tr><td colspan="7" style="color:var(--muted);text-align:center;padding:20px">No events yet</td></tr>'; return; }}
-  EVENTS.forEach(e=>{{
+  EVENTS.forEach(e => {{
     const fc=statusColor(e.from), tc=statusColor(e.to);
     body.innerHTML+=`<tr>
       <td style="color:var(--accent)">${{e.key}}</td>
@@ -378,8 +410,7 @@ function statusColor(s) {{
     return output_path
 
 
-def _extract_table(table: List[List[Any]]) -> List[Dict]:
-    """Convert list-of-lists (header + rows) to list-of-dicts."""
+def _extract_table(table):
     if not table or len(table) < 2:
         return []
     header = table[0]

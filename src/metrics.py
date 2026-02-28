@@ -3,11 +3,12 @@ src/metrics.py — compute all KPIs from movement_events + raw issues.
 
 KPIs:
   1. Weekly throughput (# moved into Done per week)
-  2. Avg / p50 / p90 cycle time (overall + by assignee + by team)
-  3. WIP by status (current snapshot)
-  4. Aging WIP: stuck >7, >14, >30 days in current status
-  5. Reopen rate per week
-  6. Time-in-status breakdown
+  2. Weekly submitted for signature (# moved into Submitted for Signature per week)
+  3. Avg / p50 / p90 cycle time (overall + by assignee + by team)
+  4. WIP by status (current snapshot, excluding Done)
+  5. Aging WIP: stuck >5, >10, >30 days (excluding Done and DUE statuses)
+  6. Reopen rate per week
+  7. Time-in-status breakdown
 """
 
 import logging
@@ -20,14 +21,15 @@ from .config import Config
 
 log = logging.getLogger(__name__)
 
-ISO_FMT = "%Y-%m-%dT%H:%M:%S.%f%z"
+# Statuses to exclude from stuck tickets entirely
+EXCLUDE_FROM_AGING = {"due", "due date", "done"}
+SUBMITTED_STATUS = "submitted for signature"
 
 
 def _parse_dt(s: str) -> Optional[datetime]:
     if not s:
         return None
     try:
-        # Jira emits "+0000" style; Python needs ±HH:MM
         s2 = s.replace("+0000", "+00:00").replace("Z", "+00:00")
         return datetime.fromisoformat(s2)
     except Exception:
@@ -38,27 +40,32 @@ def _iso_week(dt: datetime) -> str:
     return dt.strftime("%Y-W%W")
 
 
+def _current_week_range():
+    """Return (week_start, week_end) for the current Mon-Sun week."""
+    now = datetime.now(timezone.utc)
+    monday = now - __import__('datetime').timedelta(days=now.weekday())
+    monday = monday.replace(hour=0, minute=0, second=0, microsecond=0)
+    sunday = monday + __import__('datetime').timedelta(days=6, hours=23, minutes=59, seconds=59)
+    return monday, sunday
+
+
 def compute_metrics(
     events: List[Dict],
     issues: List[Dict],
     cfg: Config,
 ) -> Dict[str, List[List[Any]]]:
-    """
-    Returns a dict of named metric tables, each a list-of-lists (header + rows).
-    """
     done_set = set(cfg.done_statuses)
     in_progress_set = set(cfg.in_progress_statuses)
     now = datetime.now(timezone.utc)
 
-    # ── Pre-process: per-issue sorted events ─────────────────────────────────
+    # Pre-process: per-issue sorted events
     issue_events: Dict[str, List[Dict]] = defaultdict(list)
     for ev in events:
         issue_events[ev["issue_key"]].append(ev)
-
     for key in issue_events:
         issue_events[key].sort(key=lambda e: e["changed_at"])
 
-    # ── 1. Weekly Throughput ─────────────────────────────────────────────────
+    # ── 1. Weekly Throughput ──────────────────────────────────────────────────
     throughput: Dict[str, int] = defaultdict(int)
     for ev in events:
         if ev["to_status"].lower() in done_set:
@@ -70,15 +77,23 @@ def compute_metrics(
     for week in sorted(throughput.keys()):
         throughput_rows.append([week, throughput[week]])
 
-    # ── 2. Cycle time & Lead time ────────────────────────────────────────────
-    CycleRow = Tuple[str, str, str, float, float]  # key, assignee, team, cycle_h, lead_h
+    # ── 2. Weekly Submitted for Signature ────────────────────────────────────
+    submitted_weekly: Dict[str, int] = defaultdict(int)
+    for ev in events:
+        if ev["to_status"].lower() == SUBMITTED_STATUS:
+            dt = _parse_dt(ev["changed_at"])
+            if dt:
+                submitted_weekly[_iso_week(dt)] += 1
 
+    submitted_rows = [["week", "submitted_for_signature"]]
+    for week in sorted(submitted_weekly.keys()):
+        submitted_rows.append([week, submitted_weekly[week]])
+
+    # ── 3. Cycle time & Lead time ─────────────────────────────────────────────
     cycle_data: List[Dict] = []
     for key, evs in issue_events.items():
         first_in_progress: Optional[datetime] = None
         first_done: Optional[datetime] = None
-        created_dt: Optional[datetime] = None
-
         issue = next((i for i in issues if i["key"] == key), {})
         created_dt = _parse_dt(issue.get("created", ""))
 
@@ -133,7 +148,6 @@ def compute_metrics(
     ]
     cycle_rows = [cycle_header, _summarise(cycle_data, "", "Overall")]
 
-    # By assignee
     by_assignee: Dict[str, List[Dict]] = defaultdict(list)
     by_team: Dict[str, List[Dict]] = defaultdict(list)
     for d in cycle_data:
@@ -145,7 +159,7 @@ def compute_metrics(
     for t, items in sorted(by_team.items()):
         cycle_rows.append(_summarise(items, "team", f"Team: {t}"))
 
-    # ── 3. WIP by status ─────────────────────────────────────────────────────
+    # ── 4. WIP by status (exclude Done) ──────────────────────────────────────
     wip: Dict[str, int] = defaultdict(int)
     for issue in issues:
         status = issue.get("status", "(unknown)")
@@ -156,20 +170,23 @@ def compute_metrics(
     for s, cnt in sorted(wip.items(), key=lambda x: -x[1]):
         wip_rows.append([s, cnt])
 
-    # ── 4. Aging WIP ─────────────────────────────────────────────────────────
-    # For each open issue, find when it entered its current status
-    # (= last "to_status" event matching current status, or created if no events)
-    aging_rows = [["issue_key", "current_status", "assignee", "team", "days_in_status", "bucket"]]
+    # ── 5. Aging WIP (exclude Done AND DUE statuses) ─────────────────────────
+    aging_rows = [["issue_key", "current_status", "assignee", "team_field", "days_in_status", "bucket"]]
 
     for issue in issues:
         current = issue.get("status", "")
-        if current.lower() in done_set:
+        current_lower = current.lower()
+
+        # Skip Done statuses AND any status containing "due"
+        if current_lower in done_set:
+            continue
+        if any(excl in current_lower for excl in EXCLUDE_FROM_AGING):
             continue
 
         entered: Optional[datetime] = None
         evs = sorted(issue_events.get(issue["key"], []), key=lambda e: e["changed_at"], reverse=True)
         for ev in evs:
-            if ev["to_status"].lower() == current.lower():
+            if ev["to_status"].lower() == current_lower:
                 entered = _parse_dt(ev["changed_at"])
                 break
         if entered is None:
@@ -178,10 +195,10 @@ def compute_metrics(
         days = (now - entered).days
         if days >= 30:
             bucket = ">30d"
-        elif days >= 14:
-            bucket = ">14d"
-        elif days >= 7:
-            bucket = ">7d"
+        elif days >= 10:
+            bucket = ">10d"
+        elif days >= 5:
+            bucket = ">5d"
         else:
             continue  # not aging
 
@@ -194,7 +211,7 @@ def compute_metrics(
             bucket,
         ])
 
-    # ── 5. Reopen rate per week ───────────────────────────────────────────────
+    # ── 6. Reopen rate per week ───────────────────────────────────────────────
     reopens: Dict[str, int] = defaultdict(int)
     for ev in events:
         if ev["from_status"].lower() in done_set and ev["to_status"].lower() not in done_set:
@@ -210,10 +227,8 @@ def compute_metrics(
         rate = round(r / done * 100, 1) if done else ""
         reopen_rows.append([week, done, r, rate])
 
-    # ── 6. Time-in-status ────────────────────────────────────────────────────
-    # For each issue + status, sum up time spent
+    # ── 7. Time-in-status ─────────────────────────────────────────────────────
     status_time: Dict[str, List[float]] = defaultdict(list)
-
     for key, evs in issue_events.items():
         sorted_evs = sorted(evs, key=lambda e: e["changed_at"])
         for i, ev in enumerate(sorted_evs):
@@ -238,6 +253,7 @@ def compute_metrics(
 
     return {
         "throughput": throughput_rows,
+        "submitted_for_signature": submitted_rows,
         "cycle_time": cycle_rows,
         "wip": wip_rows,
         "aging_wip": aging_rows,
