@@ -18,6 +18,7 @@ from google.oauth2.service_account import Credentials
 
 from .config import Config
 from .changelog_parser import MOVEMENT_COLUMNS, events_to_rows
+from .status_matrix import compute_status_durations
 
 log = logging.getLogger(__name__)
 
@@ -64,6 +65,7 @@ class SheetsWriter:
         self._replace_tab(sh, "raw_changelog_snapshot", self._changelogs_to_rows(changelogs))
         self._upsert_movement_events(sh, events)
         self._write_metrics(sh, metrics)
+        self._write_status_matrix(sh, issues, events)
         log.info("All tabs written successfully.")
 
     # ------------------------------------------------------------------
@@ -88,6 +90,8 @@ class SheetsWriter:
             "raw_changelog_snapshot",
             "movement_events",
             "metrics",
+            "status_durations_long",
+            "status_matrix",
             "dashboard",
         ]
         for name in required:
@@ -203,6 +207,42 @@ class SheetsWriter:
     # ------------------------------------------------------------------
     # Dry-run
     # ------------------------------------------------------------------
+
+    def _write_status_matrix(self, sh, issues, events):
+        """Compute and write status_durations_long and status_matrix tabs."""
+        long_rows, matrix_rows = compute_status_durations(events, issues)
+
+        # status_durations_long — full replace
+        ws_long = sh.worksheet("status_durations_long")
+        ws_long.clear()
+        if long_rows:
+            # Write in chunks to avoid API limits
+            chunk = 1000
+            for i in range(0, len(long_rows), chunk):
+                ws_long.append_rows(long_rows[i:i+chunk], value_input_option="USER_ENTERED")
+        log.info("status_durations_long: %d rows", len(long_rows) - 1)
+
+        # status_matrix — full replace
+        ws_matrix = sh.worksheet("status_matrix")
+        ws_matrix.clear()
+        if matrix_rows:
+            chunk = 500
+            for i in range(0, len(matrix_rows), chunk):
+                ws_matrix.append_rows(matrix_rows[i:i+chunk], value_input_option="USER_ENTERED")
+
+            # Format header row bold
+            try:
+                ws_matrix.format("1:1", {"textFormat": {"bold": True}})
+            except Exception:
+                pass
+
+            # Freeze header row and issue_key column
+            try:
+                ws_matrix.freeze(rows=1, cols=1)
+            except Exception:
+                pass
+
+        log.info("status_matrix: %d issues", len(matrix_rows) - 1)
 
     def _print_dry_run_summary(self, issues, events, metrics):
         print(f"\n{'='*60}")
