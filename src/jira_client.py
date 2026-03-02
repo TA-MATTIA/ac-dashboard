@@ -22,7 +22,7 @@ log = logging.getLogger(__name__)
 FIELDS = [
     "summary", "status", "assignee", "reporter", "priority",
     "issuetype", "project", "created", "resolutiondate",
-    "labels", "components", "customfield_10016",  # story points (adjust if needed)
+    "labels", "components", "customfield_10081",  # story points (adjust if needed)
 ]
 
 
@@ -163,7 +163,7 @@ class JiraClient:
             team = (f.get("labels") or [""])[0]
         else:
             # Custom field
-            team_raw = f.get(cfg.team_field) or ""
+            team_raw = f.get("customfield_10081") or f.get(cfg.team_field) or ""
             team = team_raw if isinstance(team_raw, str) else (team_raw.get("value") or team_raw.get("name") or "")
 
         return {

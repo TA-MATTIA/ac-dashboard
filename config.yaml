@@ -33,7 +33,7 @@ statuses:
     - "CT600 FILED"
 
 team:
-  field: "customfield_10059"
+  field: "customfield_10081"
   field_name: "Accounting Due"
 
 backfill_from: "2026-01-01"

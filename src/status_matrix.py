@@ -208,16 +208,18 @@ def compute_status_durations(
 
 
 def _parse_due_date(s: str) -> Optional[datetime]:
-    """Try to parse accounting due date in various formats."""
+    """Try to parse accounting due date in various formats including Jira's 30 Sept 2026."""
     if not s:
         return None
-    for fmt in ("%Y-%m-%d", "%d/%m/%Y", "%d %b %Y", "%B %d, %Y", "%Y-%m-%dT%H:%M:%S%z"):
+    # Normalise Jira's non-standard month abbreviations
+    s = s.strip()
+    s = s.replace("Sept", "Sep").replace("sept", "Sep")
+    for fmt in ("%d %b %Y", "%d/%m/%Y", "%Y-%m-%d", "%B %d, %Y", "%d %B %Y"):
         try:
-            dt = datetime.strptime(s.strip(), fmt)
+            dt = datetime.strptime(s, fmt)
             return dt.replace(tzinfo=timezone.utc)
         except ValueError:
             continue
-    # Try ISO
     try:
         return _parse_dt(s)
     except Exception:
