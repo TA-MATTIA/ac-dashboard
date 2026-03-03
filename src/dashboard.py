@@ -76,6 +76,10 @@ def generate_dashboard(
     last_sync    = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     total_issues = len(issues)
 
+    # Exclude issues in any "Due" stage
+    DUE_STATUSES = {"DUE", "DUE DATE", "ACCOUNTS DUE", "CT600 DUE"}
+    issues = [i for i in issues if (i.get("status") or "").upper() not in DUE_STATUSES]
+
     # Build issue lookup for matrix
     issue_map = {i["key"]: i for i in issues}
 
